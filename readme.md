@@ -10,6 +10,9 @@ __________
        \-|                             |- 
 
   PYANS - Python Console ANSI Viewer
+  
+  Install: pip3 install pyans
+  Use    : pyans <file.ans>
 
   Display ANSI graphics in Your terminal.
   Written in python.
