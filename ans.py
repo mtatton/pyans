@@ -1,18 +1,29 @@
 #!/usr/bin/python3
 # 
-# (c) Shinobi MMXXII
+# (c) mmxxii nobody
 #
-# https://asciinema.org/a/tZHWD8zyQlNUKRfhyHTkpZ7iP
+# when using as bbs doors set TERM to linux:
+#
+# export TERM=linux
 #
 
 import os
 import sys
 import curses
 import signal
+import getopt
 from time import sleep
 
 # conversion matrix to utf8
 cmatu=[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,199,252,233,226,228,224,229,231,234,235,232,239,238,236,196,197,201,230,198,244,246,242,251,249,255,214,220,162,163,165,8359,402,225,237,243,250,241,209,170,186,191,8976,172,189,188,161,171,187,9617,9618,9619,9474,9508,9569,9570,9558,9557,9571,9553,9559,9565,9564,9563,9488,9492,9524,9516,9500,9472,9532,9566,9567,9562,9556,9577,9574,9568,9552,9580,9575,9576,9572,9573,9561,9560,9554,9555,9579,9578,9496,9484,9608,9604,9612,9616,9600,945,223,915,960,931,963,181,964,934,920,937,948,8734,966,949,8745,8801,177,8805,8804,8992,8993,247,8776,176,8729,183,8730,8319,178,9632,160]
+
+clrs = {}
+max_colors = 1
+prn_cy = 0
+scr = None
+#out_type = "utf8"
+p_autoscroll = 0
+fname = ""
 
 def handler(signum, frame):
   curses.endwin()
@@ -26,10 +37,18 @@ def prn(pstr):
   scr.addstr(pstr)
   prn_cy+=1
 
+def get_env_var(p_var):
+  ret = ""
+  try:
+    ret = os.environ[p_var]
+  except:
+    pass
+  return(ret)
+
 # print the sauce information
 def prn_help():
   global prn_cy
-  prn_cy = 3
+  prn_cy = 1
   #cols = str(int.from_bytes(pos_sauce[96:98],"little"))
   #rows = (int.from_bytes(pos_sauce[98:100],"little"))
   prn(r" __________                               ")
@@ -44,6 +63,7 @@ def prn_help():
   prn(r"")
   prn(r"   u, n       - scroll up, down more         ")
   prn(r"   k, j, h, l - scroll up, down, left, right ")
+  prn(r"   0,G        - goto begin, end of file      ")
   prn(r"   $          - display sauce information    ")
   prn(r"   ?          - display help                 ")
   prn(r"   a          - autoscroll                   ")
@@ -76,6 +96,7 @@ def cls(he):
   for cy in range(0,he):
     scr.move(0,0)
     scr.clrtoeol()
+  scr.refresh()
 
 # translate our color code to curses colors
 def curs_col(scol):
@@ -139,17 +160,18 @@ def render_ans(pad, ans, width=80, height=25, shift_y=0):
   bgcol = "Bk"
   curcol = "meWhBk"
   lp = 0 # last printed row
+  # init base color
+  if curcol not in clrs:
+    init_cur_clr(fgcol,bgcol,inten)
   # main ansi loop
   for c in ans:
-    # from this point there could be SAUCE
-    #if c == 0x1a:
-    #  break
     # new line move to new line
-    if c == ord("\n"):
+    if c == ord("\n"): # 0x0a
       cy += 1
+      cx = 0
       continue
     # linefeed go to first column
-    elif c == ord("\r"):
+    elif c == ord("\r"): # 0x0d
       cx = 0
       continue
     # set state to start of escape sequence
@@ -186,8 +208,18 @@ def render_ans(pad, ans, width=80, height=25, shift_y=0):
         # hight intensity attribute
         elif ia == 1:
           inten = "hi" 
+        # default foreground color
+        elif (ia == 39):
+          inten = "lo"
+          fgcol = "Wh"
+        # default background color
+        elif (ia == 49):
+          inten = "me"
+          bgcol = "Bk"
         # foreground colors
         elif (ia >= 30 and ia <= 37) or (ia >= 90 and ia <= 97):
+          if (ia >= 90 and ia <= 97):
+            inten = "hi" 
           fgcol = get_col(ia)
         # background colors
         elif (ia >= 40 and ia <= 47) or (ia >= 100 and ia <= 107):
@@ -209,12 +241,15 @@ def render_ans(pad, ans, width=80, height=25, shift_y=0):
       cy+=1 
       cx=0
     try:
+      #if out_type == "utf8":
       pad.addstr(cy,cx,chr(cmatu[c]),clrs[curcol])
+      #else:
+      #  pad.addstr(cy,cx,chr(c),clrs[curcol])
       cx+=1
     except Exception as e:
       # debug
-      #ocx=cx
-      #ocy=cy
+      ocx=cx
+      ocy=cy
       #scr.move(he-1,0)
       #scr.addstr(str(e)+" "+str(cy)+" "+str(cx))
       #scr.move(ocy,ocy)
@@ -224,145 +259,196 @@ def render_ans(pad, ans, width=80, height=25, shift_y=0):
   #prn(str(shift_y) + " " + sys.argv[1],"hiWhBk")
   return(cy)
 
-# process the command line arguments
-if len(sys.argv) != 2:
-  print("-| python curses ansi graphic viewer |-")
-  print("Usage: "+sys.argv[0]+" <ansi file>")
-  exit()
-
-# more variables
-clrs = {}
-max_colors = 1
-prn_cy = 0
-dans = ""
-
-fname = sys.argv[1]
-# try to read the file
-if os.path.exists(fname):
+def cmd_params(argv):
+  global out_type
+  global p_autoscroll
+  global fname
   try:
-    # read the ans as binary
-    f = open(fname,"rb")
-    dans = f.read()
-    f.close()
-  except:
-    print("Can't open specified file")
-    # make the compiler happy
+    optlist, args = getopt.getopt(argv[1:], 'a',['autoscroll'])
+    #print(str(args))
+    for name, value in optlist:
+      #if name in ['-c', '--cp437']:
+      #  out_type = "cp437"
+      if name in ['-a', '--autoscroll']:
+        p_autoscroll = 1
+    if len(args) == 1:
+      fname = args[0]
+  except Exception as e:
+    #print(str(e))
+    pass
+  return(0)
+
+# main program
+def main():
+  global scr
+  global p_autoscroll
+  # try to get TERM evironment variable
+  term = get_env_var("TERM")
+  # process the command line arguments
+  cmd_params(sys.argv)
+  if len(sys.argv) == 1:
+    print("Usage : pyans [OPTION...] <ansi file>")
+    print("")
+    print("Python ANSI Console Browser #VERSION#")
+    print("Mandatory arguments:")
+    print(" -a, --autoscroll  - autoscroll file and exit ")
+    print("")
+    exit()
+  
+  # more variables
+  dans = ""
+
+  #fname = sys.argv[1]
+  # try to read the file
+  if os.path.exists(fname):
+    try:
+      # read the ans as binary
+      f = open(fname,"rb")
+      dans = f.read()
+      f.close()
+    except:
+      print("Can't open specified file")
+      # make the compiler happy
+      exit(0) 
+  else:
+    # file provided is not there 
+    print("The file doesn't exists")
     exit(0) 
-else:
-  # file provided is not there 
-  print("The file doesn't exists")
-  exit(0) 
 
-# default sauce variables
-cols = 80
-rows = 25
-sauce_info = ""
-# try to process souce
-pos_sauce = dans[-128:]
-# check for sauce existance
-if pos_sauce[:5]==b'SAUCE':
-  #print("Confirmed")
-  # check if sauce version is 00
-  if pos_sauce[5:7]==b'00':
-    # get sauce width and height
-    cols = int.from_bytes(pos_sauce[96:98],"little")
-    rows = int.from_bytes(pos_sauce[98:100],"little")
-    # cut sauce from data
-    dans = dans[:-129]
-
-# variables
-k="0"
-cli = 0
-shift_y = 0
-shift_x = 0
-autoscroll = 0
-# init curses
-scr = curses.initscr()
-#scr.getch()
-# we want colors
-curses.start_color()
-# no new lines
-curses.nonl()
-# no echoing of keypresses
-curses.noecho()
-# get screen size
-he, wi = scr.getmaxyx()
-# hide the cursor
-curses.curs_set(0)
-# prepare new curses pad
-pad = curses.newpad(rows, cols*4) # lines, cols
-cli = render_ans(pad,dans,cols,rows,shift_y)
-# screen size variables
-while k != ord("q"):
+  # default sauce variables
+  cols = 80
+  rows = 25
+  sauce_info = ""
+  # try to process souce
+  pos_sauce = dans[-128:]
+  # check for sauce existance
+  if pos_sauce[:5]==b'SAUCE':
+    #print("Confirmed")
+    # check if sauce version is 00
+    if pos_sauce[5:7]==b'00':
+      # get sauce width and height
+      cols = int.from_bytes(pos_sauce[96:98],"little")
+      rows = int.from_bytes(pos_sauce[98:100],"little")
+      # cut sauce from data
+      dans = dans[:-129]
+  
+  # variables
+  k = "!"
+  cli = 0
+  shift_y = 0
+  shift_x = 0
+  # init curses
+  scr = curses.initscr()
+  # process autoscroll parameter
+  autoscroll = p_autoscroll
+  if autoscroll == 1: 
+    scr.timeout(100)
+  #scr.getch()
+  # we want colors
+  curses.start_color()
+  # no new lines
+  curses.nonl()
+  # no echoing of keypresses
+  curses.noecho()
+  # get screen size
   he, wi = scr.getmaxyx()
-  he -= 1
-  wi = cols
-  # scroll up more
-  if k == ord("u"):
-    if shift_y - 10 > 0:
-      shift_y -= 10
-    else:
+  # hide the cursor
+  if "xterm" in term or "screen" in term:
+    curses.curs_set(0)
+  else:
+    scr.move(0,wi-1)
+  # prepare new curses pad
+  pad = curses.newpad(rows, cols*2) # lines, cols
+  cli = render_ans(pad,dans,cols,rows,shift_y)
+  # screen size variables
+  while k != ord("q"):
+    he, wi = scr.getmaxyx()
+    he -= 1
+    #cols
+    # go to start of file
+    if k == ord("0"):
       shift_y = 0
-  # scroll down more
-  if k == ord("n"):
-    if shift_y + 10 < cli - he - 1:
-      shift_y += 10
-    else:
-      shift_y = cli - he
-  # scroll down
-  elif k == ord("j"):
-    if shift_y < cli - he -1:
-      shift_y += 1
-  # scroll up
-  elif k == ord("k"):
-    if shift_y > 0:
-      shift_y -= 1
-  # scroll left
-  elif k == ord("h"):
-    if shift_x > 0:
-      shift_x -= 1
-  # scroll right
-  elif k == ord("l"):
-    if shift_x < wi-1:
-      shift_x += 1
-  # display basic sauce information
-  elif k == ord("$"):
-    cls(he)
-    prn_sauce_info(pos_sauce)
-    scr.getch()
-  # display help
-  elif k == ord("?"):
-    cls(he)
-    prn_help()
-    scr.getch()
-  # autoscroll
-  elif k == ord("a"):
-    # if not turned on
-    if autoscroll == 0:
-      autoscroll = 1
-      # set timeout for getch
-      scr.timeout(100)
-    # if turned on
-    elif autoscroll == 1:
-      autoscroll = 0
-      # set no timeout for getch
-      scr.timeout(0)
-  scr.refresh()
-  pad.refresh(0+shift_y,0+shift_x, 0,0, he,wi-1)
-  # main autoscroll routine
-  if autoscroll == 1:
-    if shift_y < cli - he - 1:
-      shift_y += 1
-    else:
-      autoscroll = 0
-  # wait for key press
-  k = scr.getch()
-# show the cursor
-curses.curs_set(2)
-# turn on new line
-curses.nl()
-# turn on keys echoing
-curses.echo()
-# end the curses
-curses.endwin()
-
+    # go to end of file
+    elif k == ord("G"):
+      shift_y = cli - he - 1
+    # scroll up more
+    elif k == ord("u"):
+      if shift_y - 10 > 0:
+        shift_y -= 10
+      else:
+        shift_y = 0
+    # scroll down more
+    elif k == ord("n"):
+      if shift_y + 10 < cli - he - 1:
+        shift_y += 10
+      else:
+        shift_y = cli - he
+    # scroll down
+    elif k == ord("j"):
+      if shift_y < cli - he - 1:
+        shift_y += 1
+    # scroll up
+    elif k == ord("k"):
+      if shift_y > 0:
+        shift_y -= 1
+    # scroll left
+    elif k == ord("h"):
+      if shift_x > 0:
+        shift_x -= 1
+    # scroll right
+    elif k == ord("l"):
+      if shift_x < cols-1:
+        shift_x += 1
+    # display basic sauce information
+    elif k == ord("$"):
+      #cls(he)
+      scr.erase()
+      prn_sauce_info(pos_sauce)
+      scr.refresh()
+      scr.getch()
+    # display help
+    elif k == ord("?"):
+      #cls(he)
+      scr.erase()
+      prn_help()
+      scr.refresh()
+      scr.getch()
+    # autoscroll
+    elif k == ord("a"):
+      # if not turned on
+      if autoscroll == 0:
+        autoscroll = 1
+        # set timeout for getch
+        scr.timeout(100)
+      # if turned on
+      elif autoscroll == 1:
+        autoscroll = 0
+        # set no timeout for getch
+        scr.timeout(0)
+    scr.refresh()
+    pad.refresh(0+shift_y,0+shift_x, 0,0, he,wi-1)
+    # main autoscroll routine
+    if autoscroll == 1:
+      if shift_y < cli - he - 1:
+        shift_y += 1
+      else:
+        autoscroll = 0
+        if p_autoscroll == 1: 
+          break
+    # wait for key press
+    k = scr.getch()
+    scr.refresh()
+  # show the cursor
+  if "xterm" in term or "screen" in term:
+    curses.curs_set(2)
+  else:
+    scr.move(0,wi-1)
+  # turn on new line
+  curses.nl()
+  # turn on keys echoing
+  curses.echo()
+  # end the curses
+  curses.endwin()
+    
+if __name__ == "__main__":
+  main()
